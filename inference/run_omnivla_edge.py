@@ -31,6 +31,9 @@ import clip
 
 from utils_policy import transform_images_map, load_model, transform_images_PIL, transform_images_PIL_mask
 
+import rclpy
+from isaacsim_controller import IsaacSimPublisher
+
 # ===============================================================
 # Utility Functions
 # ===============================================================
@@ -73,7 +76,7 @@ def init_module(
 # Inference Class
 # ===============================================================
 class Inference:
-    def __init__(self, save_dir, lan_inst_prompt, goal_utm, goal_compass, goal_image_PIL):
+    def __init__(self, save_dir, lan_inst_prompt, goal_utm, goal_compass, goal_image_PIL, node):
         self.tick_rate = 3
         self.lan_inst_prompt = lan_inst_prompt
         self.goal_utm = goal_utm
@@ -82,6 +85,7 @@ class Inference:
         self.count_id = 0
         self.linear, self.angular = 0.0, 0.0
         self.datastore_path_image = save_dir
+        self.node = node
     # ----------------------------
     # Static Utility Methods
     # ----------------------------
@@ -248,6 +252,8 @@ class Inference:
                     linear_vel_value_limit = maxw * np.sign(linear_vel_value) * np.abs(rd)
                     angular_vel_value_limit = maxw * np.sign(angular_vel_value)
 
+        self.node.execute_waypoints(waypoints[0])
+
         # Save behavior
         self.save_robot_behavior(
             current_image_PIL, self.goal_image_PIL, goal_pose_torch[0].cpu(), waypoints[0],
@@ -265,7 +271,6 @@ class Inference:
         fig = plt.figure(figsize=(34, 16), dpi=80)
         gs = fig.add_gridspec(2, 2)
         ax_ob = fig.add_subplot(gs[0, 0])
-        ax_goal = fig.add_subplot(gs[1, 0])
         ax_graph_pos = fig.add_subplot(gs[:, 1])
 
         ax_ob.imshow(np.array(cur_img).astype(np.uint8))
@@ -484,6 +489,9 @@ if __name__ == "__main__":
     mask_360_pil_96 = np.ones((96, 96, 3), dtype=np.float32)
     mask_360_pil_224 = np.ones((224, 224, 3), dtype=np.float32)
 
+    rclpy.init()
+    node = IsaacSimPublisher()
+
     # Run inference
     inference = Inference(
         save_dir="./inference",
@@ -491,5 +499,9 @@ if __name__ == "__main__":
         goal_utm=goal_utm,
         goal_compass=goal_compass,
         goal_image_PIL=goal_image_PIL,
+        node=node,
     )
     inference.run()
+
+    node.destroy_node()
+    rclpy.shutdown()
