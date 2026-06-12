@@ -32,7 +32,7 @@ import clip
 from utils_policy import transform_images_map, load_model, transform_images_PIL, transform_images_PIL_mask
 
 import rclpy
-from isaacsim_controller import IsaacSimPublisher
+from isaacsim_controller import IsaacSimPublisher, clip_angle
 
 # ===============================================================
 # Utility Functions
@@ -102,14 +102,19 @@ class Inference:
     # ----------------------------
     # Main Loop
     # ----------------------------
-    def run(self):
+    def run(self, max_ticks=80):
         loop_time = 1 / self.tick_rate
         start_time = time.time()
-        while True:
+        tick_count = 0
+        while tick_count < max_ticks:
             if time.time() - start_time > loop_time:
                 self.tick()
                 start_time = time.time()
-                break
+                tick_count += 1
+
+        # Stop the robot once the (test) loop ends; the last velocity command
+        # would otherwise remain active (no cmd_vel watchdog in the sim).
+        self.node.stop()
 
     def tick(self):
         self.linear, self.angular = self.run_omnivla()
@@ -154,9 +159,12 @@ class Inference:
             np.sin(yaw_ang/180.0*3.1415)
         ])).unsqueeze(0).float().to(device)
 
-        # Load current image
-        current_image_path = "./inference/current_img.jpg"
-        current_image_PIL = Image.open(current_image_path).convert("RGB")
+        # Load current image (live stream from the Go2 front camera via ROS)
+        current_image_PIL = self.node.get_latest_image_pil()
+        if current_image_PIL is None:
+            print("No image received from Go2 camera yet; skipping tick.")
+            return self.linear, self.angular
+        current_image_PIL = current_image_PIL.convert("RGB")
 
         current_image_PIL_96 = current_image_PIL.resize(imgsize)
         current_image_PIL_224 = current_image_PIL.resize(imgsize_clip)
@@ -252,7 +260,9 @@ class Inference:
                     linear_vel_value_limit = maxw * np.sign(linear_vel_value) * np.abs(rd)
                     angular_vel_value_limit = maxw * np.sign(angular_vel_value)
 
-        self.node.execute_waypoints(waypoints[0])
+        # Publish a single velocity command derived from the chosen future
+        # waypoint via the PD controller above, then re-plan on the next tick.
+        self.node.publish_velocity(linear_vel_value_limit, angular_vel_value_limit)
 
         # Save behavior
         self.save_robot_behavior(
@@ -437,7 +447,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "blue trash bin"
+    lan_inst_prompt = "move to the purple box and stop after you have reached the purple box"
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
