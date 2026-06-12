@@ -11,7 +11,7 @@
 import sys, os
 sys.path.insert(0, '..')
 
-import time, math, json
+import time, math, json, threading
 from typing import Optional, Tuple, Type, Dict
 from dataclasses import dataclass
 
@@ -86,6 +86,7 @@ class Inference:
         self.linear, self.angular = 0.0, 0.0
         self.datastore_path_image = save_dir
         self.node = node
+        self._estop = threading.Event()
     # ----------------------------
     # Static Utility Methods
     # ----------------------------
@@ -102,19 +103,33 @@ class Inference:
     # ----------------------------
     # Main Loop
     # ----------------------------
+    def _watch_estop(self):
+        while not self._estop.is_set():
+            try:
+                line = input()
+            except EOFError:
+                break
+            if line.strip().lower() in ("", "q"):
+                print("[FAILSAFE] Stop key pressed - halting robot.")
+                self._estop.set()
+                self.node.stop()
+
     def run(self, max_ticks=80):
+        print("[FAILSAFE] Press Enter or 'q' + Enter to stop the robot.")
+        estop_thread = threading.Thread(target=self._watch_estop, daemon=True)
+        estop_thread.start()
+
         loop_time = 1 / self.tick_rate
         start_time = time.time()
         tick_count = 0
-        while tick_count < max_ticks:
-            if time.time() - start_time > loop_time:
-                self.tick()
-                start_time = time.time()
-                tick_count += 1
-
-        # Stop the robot once the (test) loop ends; the last velocity command
-        # would otherwise remain active (no cmd_vel watchdog in the sim).
-        self.node.stop()
+        try:
+            while tick_count < max_ticks and not self._estop.is_set():
+                if time.time() - start_time > loop_time:
+                    self.tick()
+                    start_time = time.time()
+                    tick_count += 1
+        finally:
+            self.node.stop()
 
     def tick(self):
         self.linear, self.angular = self.run_omnivla()
@@ -262,6 +277,8 @@ class Inference:
 
         # Publish a single velocity command derived from the chosen future
         # waypoint via the PD controller above, then re-plan on the next tick.
+        if self._estop.is_set():
+            return self.linear, self.angular
         self.node.publish_velocity(linear_vel_value_limit, angular_vel_value_limit)
 
         # Save behavior
@@ -511,7 +528,11 @@ if __name__ == "__main__":
         goal_image_PIL=goal_image_PIL,
         node=node,
     )
-    inference.run()
-
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        inference.run()
+    except KeyboardInterrupt:
+        print("\n[FAILSAFE] Interrupted - stopping robot.")
+    finally:
+        node.stop()
+        node.destroy_node()
+        rclpy.shutdown()
