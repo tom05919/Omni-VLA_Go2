@@ -1,4 +1,9 @@
 # OmniVLA: An Omni-Modal Vision-Language-Action Model for Robot Navigation
+
+## Go2 / Isaac Sim fork
+
+This repository extends [NHirose/OmniVLA](https://github.com/NHirose/OmniVLA) with ROS2 integration for Unitree Go2 in Isaac Sim. See `inference/isaacsim_controller.py` and `inference/run_omnivla_edge.py`.
+
 [![Python](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Static Badge](https://img.shields.io/badge/Project-Page-a)](https://omnivla-nav.github.io)
