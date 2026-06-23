@@ -1,8 +1,16 @@
 # OmniVLA: An Omni-Modal Vision-Language-Action Model for Robot Navigation
 
-## Go2 / Isaac Sim fork
+## Go2 real robot & Isaac Sim fork
 
-This repository extends [NHirose/OmniVLA](https://github.com/NHirose/OmniVLA) with ROS2 integration for Unitree Go2 in Isaac Sim. See `inference/isaacsim_controller.py` and `inference/run_omnivla_edge.py`.
+This repository extends [NHirose/OmniVLA](https://github.com/NHirose/OmniVLA) with ROS 2 integration for the Unitree Go2 (real hardware and Isaac Sim).
+
+| Doc | Purpose |
+|-----|---------|
+| **[REAL_ROBOT_GO2.md](REAL_ROBOT_GO2.md)** | **Step-by-step commands to run OmniVLA-edge on a physical Go2** |
+| `inference/isaacsim_controller.py` | ROS 2 bridge (camera in, `/cmd_vel` out) |
+| `inference/run_omnivla_edge.py` | OmniVLA-edge inference loop |
+
+**Quick start (real robot):** see [REAL_ROBOT_GO2.md §4](REAL_ROBOT_GO2.md#4-every-session-command-sequence).
 
 [![Python](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -46,7 +54,7 @@ Please set up a conda environment (see instructions in [SETUP.md](SETUP.md)).
     ```
 3. Change the goal modality: by default, our code generates actions based on the language prompt. To use a different modality, you can modify the settings around line 425. 
     
-4. Run OmniVLA to control the real robot. Modify "run_omnivla_edge.py" to update the robot’s state (camera image, GPS signal) and adjust the goal information accordingly. Then, feed the generated velocity commands to your robot.
+4. Run OmniVLA-edge on the **real Unitree Go2** — full command sequence, launch flags, and troubleshooting: **[REAL_ROBOT_GO2.md](REAL_ROBOT_GO2.md)**. Customize goals in `run_omnivla_edge.py` (language prompt, goal image, GPS).
 
 ### Training
 We provide the training code along with a sample dataloader to help you quickly understand the required data loading structure. Since preparing the full training dataset is resource-intensive, we include this simplified code base for convenience.

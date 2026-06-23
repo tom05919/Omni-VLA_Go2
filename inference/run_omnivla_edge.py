@@ -114,7 +114,7 @@ class Inference:
                 self._estop.set()
                 self.node.stop()
 
-    def run(self, max_ticks=80):
+    def run(self, max_ticks=200):
         print("[FAILSAFE] Press Enter or 'q' + Enter to stop the robot.")
         estop_thread = threading.Thread(target=self._watch_estop, daemon=True)
         estop_thread.start()
@@ -301,7 +301,6 @@ class Inference:
         ax_graph_pos = fig.add_subplot(gs[:, 1])
 
         ax_ob.imshow(np.array(cur_img).astype(np.uint8))
-        ax_goal.imshow(np.array(goal_img).astype(np.uint8))
 
         x_seq = waypoints[:, 0] #generated trajectory is on the robot coordinate. X is front and Y is left. 
         y_seq_inv = -waypoints[:, 1]           
@@ -317,7 +316,6 @@ class Inference:
             ax_graph_pos.annotate(mask_texts[mask_type], xy=(1.0, 0.0), xytext=(-20, 20), fontsize=18, textcoords='offset points')
 
         ax_ob.set_title("Egocentric current image", fontsize=18)
-        ax_goal.set_title("Egocentric goal image", fontsize=18)
         ax_graph_pos.tick_params(axis='x', labelsize=15) 
         ax_graph_pos.tick_params(axis='y', labelsize=15) 
         
@@ -464,7 +462,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "move to the purple box and stop after you have reached the purple box"
+    lan_inst_prompt = "move to the purple crate"
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0

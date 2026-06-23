@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image as RosImage
 from PIL import Image as PILImage
@@ -13,12 +14,25 @@ def clip_angle(theta):
 
 
 class IsaacSimPublisher(Node):
-    def __init__(self, image_topic='/unitree_go2_0/front_cam/color_image'):
+    def __init__(self, image_topic='/unitree_go2_0/front_cam/color_image'): #for simulation control
+    #def __init__(self, image_topic='/camera/image_raw'): #for real robot control
         super().__init__('cmd_vel_publisher')
-        self.pub = self.create_publisher(Twist, '/unitree_go2_0/cmd_vel', 10)
+
+        qos_profile = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=5,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE
+        )
+
+        #self.pub = self.create_publisher(Twist, '/cmd_vel', 10) #for real robot control
+        self.pub = self.create_publisher(Twist, '/unitree_go2_0/cmd_vel', 10) #for simulation control
+
 
         # Camera intake: store the most recent frame from the Go2.
         self.latest_image = None
+        #self.img_sub = self.create_subscription(
+        #    RosImage, image_topic, self._image_callback, qos_profile)
         self.img_sub = self.create_subscription(
             RosImage, image_topic, self._image_callback, 10)
 
@@ -52,7 +66,7 @@ class IsaacSimPublisher(Node):
             self.pub.publish(msg)
             time.sleep(0.05)
 
-    def publish_velocity(self, linear, angular, isaac_scale=1.0 / 0.3):
+    def publish_velocity(self, linear, angular, isaac_scale=1.0 / 0.6):
         """Publish a single velocity command (Twist), OmniVLA/ViNT-style.
 
         The inference loop's PD controller produces one (linear, angular)
