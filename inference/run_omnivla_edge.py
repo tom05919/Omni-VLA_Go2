@@ -12,6 +12,7 @@ import sys, os
 sys.path.insert(0, '..')
 
 import time, math, json, threading
+from pathlib import Path
 from typing import Optional, Tuple, Type, Dict
 from dataclasses import dataclass
 
@@ -33,6 +34,12 @@ from utils_policy import transform_images_map, load_model, transform_images_PIL,
 
 import rclpy
 from isaacsim_controller import IsaacSimPublisher, clip_angle
+
+GOAL_STOP_JUDGE_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../../goal_stop_judge")
+)
+sys.path.insert(0, GOAL_STOP_JUDGE_ROOT)
+from stop_signal import DEFAULT_STOP_SIGNAL_PATH, is_stop_requested
 
 # ===============================================================
 # Utility Functions
@@ -76,7 +83,16 @@ def init_module(
 # Inference Class
 # ===============================================================
 class Inference:
-    def __init__(self, save_dir, lan_inst_prompt, goal_utm, goal_compass, goal_image_PIL, node):
+    def __init__(
+        self,
+        save_dir,
+        lan_inst_prompt,
+        goal_utm,
+        goal_compass,
+        goal_image_PIL,
+        node,
+        stop_signal_path=None,
+    ):
         self.tick_rate = 3
         self.lan_inst_prompt = lan_inst_prompt
         self.goal_utm = goal_utm
@@ -86,7 +102,17 @@ class Inference:
         self.linear, self.angular = 0.0, 0.0
         self.datastore_path_image = save_dir
         self.node = node
+        self.stop_signal_path = stop_signal_path or DEFAULT_STOP_SIGNAL_PATH
         self._estop = threading.Event()
+
+    def _check_external_stop(self) -> bool:
+        if is_stop_requested(self.stop_signal_path):
+            if not self._estop.is_set():
+                print("[STOP JUDGE] External stop requested - halting robot.")
+            self._estop.set()
+            self.node.stop()
+            return True
+        return False
     # ----------------------------
     # Static Utility Methods
     # ----------------------------
@@ -132,6 +158,8 @@ class Inference:
             self.node.stop()
 
     def tick(self):
+        if self._check_external_stop():
+            return
         self.linear, self.angular = self.run_omnivla()
 
     # ----------------------------
@@ -179,7 +207,7 @@ class Inference:
         if current_image_PIL is None:
             print("No image received from Go2 camera yet; skipping tick.")
             return self.linear, self.angular
-        current_image_PIL = current_image_PIL.convert("RGB")
+        current_image_PIL = current_image_PIL
 
         current_image_PIL_96 = current_image_PIL.resize(imgsize)
         current_image_PIL_224 = current_image_PIL.resize(imgsize_clip)
@@ -277,7 +305,7 @@ class Inference:
 
         # Publish a single velocity command derived from the chosen future
         # waypoint via the PD controller above, then re-plan on the next tick.
-        if self._estop.is_set():
+        if self._estop.is_set() or self._check_external_stop():
             return self.linear, self.angular
         self.node.publish_velocity(linear_vel_value_limit, angular_vel_value_limit)
 
@@ -451,6 +479,23 @@ def define_model(cfg: InferenceConfig) -> None:
 # Main Entry
 # ===============================================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="OmniVLA-edge inference")
+    parser.add_argument("--sim", action="store_true", help="Use Isaac sim ROS topics (default: real Go2)")
+    parser.add_argument(
+        "--cmd-vel-topic",
+        default=None,
+        help="Override cmd_vel topic (default: /cmd_vel; use /cmd_vel_out if no twist_mux)",
+    )
+    parser.add_argument(
+        "--stop-signal-file",
+        type=str,
+        default=str(DEFAULT_STOP_SIGNAL_PATH),
+        help="Path to shared stop signal file from stop_judge",
+    )
+    cli_args = parser.parse_args()
+    use_sim = cli_args.sim
+    stop_signal_path = Path(cli_args.stop_signal_file)
+
     # select modality
     pose_goal = False
     satellite = False
@@ -462,7 +507,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "move to the purple crate"
+    lan_inst_prompt = "move to fire extinguisher"
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
@@ -515,7 +560,7 @@ if __name__ == "__main__":
     mask_360_pil_224 = np.ones((224, 224, 3), dtype=np.float32)
 
     rclpy.init()
-    node = IsaacSimPublisher()
+    node = IsaacSimPublisher(sim=use_sim, cmd_vel_topic=cli_args.cmd_vel_topic)
 
     # Run inference
     inference = Inference(
@@ -525,6 +570,7 @@ if __name__ == "__main__":
         goal_compass=goal_compass,
         goal_image_PIL=goal_image_PIL,
         node=node,
+        stop_signal_path=stop_signal_path,
     )
     try:
         inference.run()

@@ -1,11 +1,22 @@
+import threading
+import time
+
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image as RosImage
 from PIL import Image as PILImage
-import time
-import numpy as np
+from sensor_msgs.msg import Image as RosImage
+
+SIM_TOPICS = {
+    "image": "/unitree_go2_0/front_cam/color_image",
+    "cmd_vel": "/unitree_go2_0/cmd_vel",
+}
+REAL_TOPICS = {
+    "image": "/camera/image_raw",
+    "cmd_vel": "/cmd_vel",
+}
 
 
 def clip_angle(theta):
@@ -13,44 +24,64 @@ def clip_angle(theta):
     return np.arctan2(np.sin(theta), np.cos(theta))
 
 
+def _image_qos() -> QoSProfile:
+    # Match Go2 driver camera publisher (BEST_EFFORT).
+    return QoSProfile(
+        history=QoSHistoryPolicy.KEEP_LAST,
+        depth=5,
+        reliability=QoSReliabilityPolicy.BEST_EFFORT,
+        durability=QoSDurabilityPolicy.VOLATILE,
+    )
+
+
 class IsaacSimPublisher(Node):
-    def __init__(self, image_topic='/unitree_go2_0/front_cam/color_image'): #for simulation control
-    #def __init__(self, image_topic='/camera/image_raw'): #for real robot control
-        super().__init__('cmd_vel_publisher')
+    def __init__(
+        self,
+        sim: bool = False,
+        image_topic: str | None = None,
+        cmd_vel_topic: str | None = None,
+    ):
+        topics = SIM_TOPICS if sim else REAL_TOPICS
+        image_topic = image_topic or topics["image"]
+        self._sim = sim
+        self.cmd_vel_topic = cmd_vel_topic or topics["cmd_vel"]
+        super().__init__("cmd_vel_publisher")
 
-        qos_profile = QoSProfile(
-            history=QoSHistoryPolicy.KEEP_LAST,
-            depth=5,
-            reliability=QoSReliabilityPolicy.BEST_EFFORT,
-            durability=QoSDurabilityPolicy.VOLATILE
-        )
-
-        #self.pub = self.create_publisher(Twist, '/cmd_vel', 10) #for real robot control
-        self.pub = self.create_publisher(Twist, '/unitree_go2_0/cmd_vel', 10) #for simulation control
-
-
-        # Camera intake: store the most recent frame from the Go2.
+        self.pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self._last_twist = Twist()
+        self._cmd_timer = self.create_timer(0.1, self._republish_cmd_vel)
         self.latest_image = None
-        #self.img_sub = self.create_subscription(
-        #    RosImage, image_topic, self._image_callback, qos_profile)
         self.img_sub = self.create_subscription(
-            RosImage, image_topic, self._image_callback, 10)
+            RosImage, image_topic, self._image_callback, _image_qos()
+        )
+        self._spin_stop = threading.Event()
+        self._spin_thread = threading.Thread(target=self._spin_loop, daemon=True)
+        self._spin_thread.start()
+
+    def _spin_loop(self):
+        while not self._spin_stop.is_set() and rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.05)
+
+    def destroy_node(self):
+        self._spin_stop.set()
+        if self._spin_thread.is_alive():
+            self._spin_thread.join(timeout=1.0)
+        super().destroy_node()
+
+    def _republish_cmd_vel(self):
+        self.pub.publish(self._last_twist)
 
     def _image_callback(self, msg):
-        """Convert an rgb8 sensor_msgs/Image into an (H, W, 3) uint8 array."""
+        """Convert sensor_msgs/Image into an (H, W, 3) uint8 RGB array."""
         arr = np.frombuffer(msg.data, dtype=np.uint8)
-        # msg.step is the row stride in bytes; slice off any row padding.
         arr = arr.reshape(msg.height, msg.step)
         arr = arr[:, : msg.width * 3].reshape(msg.height, msg.width, 3)
+        if msg.encoding.lower() in ("bgr8", "bgra8"):
+            arr = arr[..., :3][..., ::-1]
         self.latest_image = arr
 
     def get_latest_image_pil(self, timeout_sec=5.0, fresh=True):
-        """Spin until a (fresh) camera frame is available; return it as a PIL RGB image.
-
-        fresh=True drops any previously buffered frame and waits for a new one,
-        so each inference tick uses an image captured after the last motion.
-        Returns None if no frame arrives within timeout_sec.
-        """
+        """Spin until a (fresh) camera frame is available; return it as a PIL RGB image."""
         if fresh:
             self.latest_image = None
         start = time.time()
@@ -58,28 +89,23 @@ class IsaacSimPublisher(Node):
             rclpy.spin_once(self, timeout_sec=0.1)
         if self.latest_image is None:
             return None
-        return PILImage.fromarray(self.latest_image, mode='RGB')
+        return PILImage.fromarray(self.latest_image, mode="RGB")
 
     def stop(self):
-        msg = Twist()  # all zeros
-        for _ in range(5):  # send a few times for reliability
-            self.pub.publish(msg)
-            time.sleep(0.05)
+        if not rclpy.ok():
+            return
+        self._last_twist = Twist()
+        self.pub.publish(self._last_twist)
 
-    def publish_velocity(self, linear, angular, isaac_scale=1.0 / 0.6):
-        """Publish a single velocity command (Twist), OmniVLA/ViNT-style.
-
-        The inference loop's PD controller produces one (linear, angular)
-        command per model output. We publish it once and leave it active until
-        the next model output overwrites it (the Isaac bridge has no cmd_vel
-        watchdog, so the last command persists). This matches the paper, where
-        the active velocity command is updated whenever a new output arrives.
-
-        `isaac_scale` maps the model's physical velocities (capped at ~0.3 m/s
-        and rad/s by the PD limiter) into the Go2 policy's command range, where
-        keyboard teleop uses magnitudes around 1.0.
-        """
-        msg = Twist()
-        msg.linear.x = float(linear * isaac_scale)
-        msg.angular.z = float(angular * isaac_scale)
-        self.pub.publish(msg)
+    def publish_velocity(self, linear, angular, isaac_scale=None):
+        """Publish velocity commands; 10 Hz timer keeps the stream alive for Go2/twist_mux."""
+        if isaac_scale is None:
+            isaac_scale = 1.0 / 0.6 if self._sim else 1.0
+        self._last_twist = Twist()
+        self._last_twist.linear.x = float(linear * isaac_scale)
+        self._last_twist.angular.z = float(angular * isaac_scale)
+        self.pub.publish(self._last_twist)
+        print(
+            f"cmd_vel -> {self.cmd_vel_topic}: "
+            f"vx={self._last_twist.linear.x:.3f} wz={self._last_twist.angular.z:.3f}"
+        )
