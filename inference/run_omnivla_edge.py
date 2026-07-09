@@ -39,7 +39,7 @@ GOAL_STOP_JUDGE_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../goal_stop_judge")
 )
 sys.path.insert(0, GOAL_STOP_JUDGE_ROOT)
-from stop_signal import DEFAULT_STOP_SIGNAL_PATH, is_stop_requested
+from stop_signal import DEFAULT_STOP_SIGNAL_PATH, is_stop_requested, read_target_distance
 
 # ===============================================================
 # Utility Functions
@@ -154,6 +154,7 @@ class Inference:
                     self.tick()
                     start_time = time.time()
                     tick_count += 1
+                    self.node.stop()
         finally:
             self.node.stop()
 
@@ -260,6 +261,8 @@ class Inference:
 
         # Select waypoint
         waypoint_select = 4
+        # distance_m = read_target_distance(self.stop_signal_path.parent / ".target_distance")
+        # waypoint_select = 2 if distance_m is not None and distance_m < 1.5 else 4
         chosen_waypoint = waypoints[0][waypoint_select].copy()
         chosen_waypoint[:2] *= metric_waypoint_spacing
         dx, dy, hx, hy = chosen_waypoint
@@ -507,7 +510,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "move to fire extinguisher"
+    lan_inst_prompt = "move to the fire extinguisher"
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
