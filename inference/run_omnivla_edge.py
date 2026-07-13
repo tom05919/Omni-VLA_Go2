@@ -12,6 +12,7 @@ import sys, os
 sys.path.insert(0, '..')
 
 import time, math, json, threading
+from collections import deque
 from pathlib import Path
 from typing import Optional, Tuple, Type, Dict
 from dataclasses import dataclass
@@ -92,6 +93,7 @@ class Inference:
         goal_image_PIL,
         node,
         stop_signal_path=None,
+        context_length=6,
     ):
         self.tick_rate = 3
         self.lan_inst_prompt = lan_inst_prompt
@@ -104,6 +106,7 @@ class Inference:
         self.node = node
         self.stop_signal_path = stop_signal_path or DEFAULT_STOP_SIGNAL_PATH
         self._estop = threading.Event()
+        self.context_queue = deque(maxlen=context_length)
 
     def _check_external_stop(self) -> bool:
         if is_stop_requested(self.stop_signal_path):
@@ -154,7 +157,6 @@ class Inference:
                     self.tick()
                     start_time = time.time()
                     tick_count += 1
-                    self.node.stop()
         finally:
             self.node.stop()
 
@@ -212,11 +214,19 @@ class Inference:
 
         current_image_PIL_96 = current_image_PIL.resize(imgsize)
         current_image_PIL_224 = current_image_PIL.resize(imgsize_clip)
-        
-        #In this test code, we feed same images for the observation history, assuming that the robot stopped at the current location.
-        context_queue = [current_image_PIL_96, current_image_PIL_96, current_image_PIL_96, current_image_PIL_96, current_image_PIL_96, current_image_PIL_96]
-        #obs_images = transform_images_PIL(context_queue)
-        obs_images = transform_images_PIL_mask(context_queue, mask_360_pil_96)        
+
+        # Keep real observation history in oldest-to-newest order, matching training.
+        self.context_queue.append(current_image_PIL_96)
+        if len(self.context_queue) < self.context_queue.maxlen:
+            print(
+                f"Collecting image history "
+                f"({len(self.context_queue)}/{self.context_queue.maxlen}); skipping inference."
+            )
+            return self.linear, self.angular
+
+        obs_images = transform_images_PIL_mask(
+            list(self.context_queue), mask_360_pil_96
+        )
         obs_images = torch.split(obs_images.to(device), 3, dim=1)
         obs_image_cur = obs_images[-1].to(device) 
         obs_images = torch.cat(obs_images, dim=1).to(device)     
@@ -510,7 +520,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "move to the fire extinguisher"
+    lan_inst_prompt = "red fire extinguisher"
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
@@ -527,7 +537,7 @@ if __name__ == "__main__":
     model_params["model_type"] = "omnivla-edge"    
     model_params["len_traj_pred"] = 8
     model_params["learn_angle"] = True
-    model_params["context_size"] = 5
+    model_params["context_size"] = 6
     model_params["obs_encoder"] = "efficientnet-b0"
     model_params["encoding_size"] = 256
     model_params["obs_encoding_size"] = 1024   
@@ -574,6 +584,7 @@ if __name__ == "__main__":
         goal_image_PIL=goal_image_PIL,
         node=node,
         stop_signal_path=stop_signal_path,
+        context_length=context_size,
     )
     try:
         inference.run()
