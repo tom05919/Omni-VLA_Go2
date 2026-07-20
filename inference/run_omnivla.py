@@ -1,7 +1,11 @@
 # ===============================================================
 # OmniVLA Inference
 # ===============================================================
-# 
+#
+# Full OmniVLA. Run ``--mode local`` on the robot PC (ROS camera + cmd_vel),
+# or ``--mode serve`` on any GPU host (ZeroMQ REP); pair serve with
+# ``goal_stop_judge/server_client.py`` / ``go2_nav.py serve``.
+#
 # Sample inference code for OmniVLA
 # if you want to control the robot, you need to update the current state such as pose and image in "run_omnivla" and comment out "break" in "run".
 #
@@ -672,16 +676,27 @@ def serve_remote(inference: Inference, bind_endpoint: str) -> None:
 # Main Entry
 # ===============================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OmniVLA inference")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Full OmniVLA. --mode local: ROS on this machine; "
+            "--mode serve: ZeroMQ REP for remote clients."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("local", "serve"),
+        default="local",
+        help="local = ROS camera + cmd_vel; serve = ZeroMQ server (no ROS)",
+    )
     parser.add_argument(
         "--serve",
         action="store_true",
-        help="Run as a ZeroMQ inference server without ROS",
+        help="Deprecated alias for --mode serve",
     )
     parser.add_argument(
         "--bind",
         default="tcp://*:5555",
-        help="ZeroMQ bind endpoint used with --serve",
+        help="ZeroMQ bind endpoint used with --mode serve",
     )
     parser.add_argument("--text-prompt", default="go to fire extinguisher")
     parser.add_argument("--sim", action="store_true", help="Use Isaac sim ROS topics (default: real Go2)")
@@ -698,7 +713,11 @@ if __name__ == "__main__":
     )
     cli_args = parser.parse_args()
 
-    if cli_args.serve:
+    mode = "serve" if cli_args.serve else cli_args.mode
+    if cli_args.serve and cli_args.mode == "local":
+        print("[WARN] --serve is deprecated; use --mode serve", flush=True)
+
+    if mode == "serve":
         try:
             import zmq  # noqa: F401
         except ImportError as exc:
@@ -734,14 +753,14 @@ if __name__ == "__main__":
         processor=processor,
     )
 
-    if cli_args.serve:
+    if mode == "serve":
         try:
             serve_remote(inference, cli_args.bind)
         except KeyboardInterrupt:
             print("\n[SERVER] Shutting down.")
         sys.exit(0)
 
-    # Local full-model mode retains the previous ROS behavior.
+    # --mode local: ROS camera + cmd_vel on this machine
     GOAL_STOP_JUDGE_ROOT = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "../../../goal_stop_judge")
     )

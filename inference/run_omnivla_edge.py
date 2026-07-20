@@ -505,6 +505,11 @@ if __name__ == "__main__":
         default=str(DEFAULT_STOP_SIGNAL_PATH),
         help="Path to shared stop signal file from stop_judge",
     )
+    parser.add_argument(
+        "--text-prompt",
+        default="go to the human with white shirt",
+        help="OmniVLA language navigation prompt",
+    )
     cli_args = parser.parse_args()
     use_sim = cli_args.sim
     stop_signal_path = Path(cli_args.stop_signal_file)
@@ -520,7 +525,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "go to the human with white shirt"
+    lan_inst_prompt = cli_args.text_prompt
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
