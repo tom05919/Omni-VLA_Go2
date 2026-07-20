@@ -6,6 +6,8 @@
 # or ``--mode serve`` on any GPU host (ZeroMQ REP); pair serve with
 # ``goal_stop_judge/server_client.py`` / ``go2_nav.py serve``.
 #
+"""Full OmniVLA local ROS inference and remote ZeroMQ serving."""
+
 # Sample inference code for OmniVLA
 # if you want to control the robot, you need to update the current state such as pose and image in "run_omnivla" and comment out "break" in "run".
 #
@@ -52,6 +54,18 @@ from transformers import AutoConfig, AutoProcessor, AutoModelForVision2Seq, Auto
 # ===============================================================
 def clip_angle(theta):
     return np.arctan2(np.sin(theta), np.cos(theta))
+
+
+def load_goal_image(path: Path, size: tuple[int, int] = (224, 224)) -> Image.Image:
+    """Load an image-goal placeholder; language mode does not use its content."""
+    if path.is_file():
+        return Image.open(path).convert("RGB").resize(size)
+    print(
+        f"[WARN] Goal image {path} is missing; using a neutral placeholder "
+        "for language-prompt mode.",
+        flush=True,
+    )
+    return Image.new("RGB", size, color=(127, 127, 127))
 
 
 def remove_ddp_in_checkpoint(state_dict: dict) -> dict:
@@ -699,6 +713,12 @@ if __name__ == "__main__":
         help="ZeroMQ bind endpoint used with --mode serve",
     )
     parser.add_argument("--text-prompt", default="go to fire extinguisher")
+    parser.add_argument(
+        "--goal-image",
+        type=Path,
+        default=Path(__file__).resolve().parent / "goal_img.jpg",
+        help="Goal image used by image-goal modality; language mode uses a placeholder if absent",
+    )
     parser.add_argument("--sim", action="store_true", help="Use Isaac sim ROS topics (default: real Go2)")
     parser.add_argument(
         "--cmd-vel-topic",
@@ -737,7 +757,7 @@ if __name__ == "__main__":
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
     goal_utm = utm.from_latlon(goal_lat, goal_lon)
     goal_compass = -float(goal_compass) / 180.0 * math.pi
-    goal_image_PIL = Image.open("./inference/goal_img.jpg").convert("RGB")
+    goal_image_PIL = load_goal_image(cli_args.goal_image)
 
     # Define models (VLA, action_head, pose_projector, processor, etc.)
     cfg = InferenceConfig()

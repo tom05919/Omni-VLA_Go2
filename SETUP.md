@@ -1,5 +1,14 @@
 # Setup Instructions
 
+> **This workspace:** prefer the stack installers under
+> [`../../goal_stop_judge/envs/`](../../goal_stop_judge/envs/)
+> (`install_omnivla_env.sh`, pins in `VERSIONS.md`). They create the `omnivla`
+> env used by `go2_nav.py` (`--nav full` / `serve`) with RoboStack + NumPy 1.26
+> re-pin. Full stack guide: [`../../README.md`](../../README.md).
+>
+> The commands below are the upstream OmniVLA SETUP flow and may diverge from
+> the stack manifests (Python / torch / ROS).
+
 ## Set Up Conda Environment
 
 ```bash

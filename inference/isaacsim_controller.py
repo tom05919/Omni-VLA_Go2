@@ -81,15 +81,15 @@ class IsaacSimPublisher(Node):
         self.latest_image = arr
 
     def get_latest_image_pil(self, timeout_sec=5.0, fresh=True):
-        """Spin until a (fresh) camera frame is available; return it as a PIL RGB image."""
+        """Wait for the background spin thread to deliver a camera frame."""
         if fresh:
             self.latest_image = None
         start = time.time()
         while self.latest_image is None and (time.time() - start) < timeout_sec:
-            rclpy.spin_once(self, timeout_sec=0.1)
+            time.sleep(0.05)
         if self.latest_image is None:
             return None
-        return PILImage.fromarray(self.latest_image, mode="RGB")
+        return PILImage.fromarray(self.latest_image.copy(), mode="RGB")
 
     def stop(self):
         if not rclpy.ok():

@@ -1,5 +1,14 @@
 # OmniVLA-edge on the Unitree Go2 (Real Robot)
 
+> **Full stop-judge + OmniVLA stack (edge / full / remote):** see
+> [`../../README.md`](../../README.md) — everyday entry is
+> `cd goal_stop_judge && python go2_nav.py`.
+>
+> This document is the **edge-oriented** driver / topic / launch deep dive.
+> Canonical SDK path: `real_robot_SDKs/unofficial_sdk_unitree_go_2/src` then
+> `source install/setup.bash`. `ROBOT_IP` is machine-specific (examples below
+> may differ from [`RUNNING_GO2_SDK.md`](../../real_robot_SDKs/unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md)).
+
 This guide walks through **every command** needed to run OmniVLA-edge on a physical Unitree Go2 using the unofficial Go2 ROS 2 SDK. It covers one-time setup, the launch sequence for each session, verification steps, configuration, and troubleshooting.
 
 ---

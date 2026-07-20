@@ -42,6 +42,19 @@ GOAL_STOP_JUDGE_ROOT = os.path.abspath(
 sys.path.insert(0, GOAL_STOP_JUDGE_ROOT)
 from stop_signal import DEFAULT_STOP_SIGNAL_PATH, is_stop_requested, read_target_distance
 
+
+def load_goal_image(path: Path, size: tuple[int, int]) -> Image.Image:
+    """Load an image-goal placeholder; language mode does not use its content."""
+    if path.is_file():
+        return Image.open(path).convert("RGB").resize(size)
+    print(
+        f"[WARN] Goal image {path} is missing; using a neutral placeholder "
+        "for language-prompt mode.",
+        flush=True,
+    )
+    return Image.new("RGB", size, color=(127, 127, 127))
+
+
 # ===============================================================
 # Utility Functions
 # ===============================================================
@@ -510,6 +523,12 @@ if __name__ == "__main__":
         default="go to the human with white shirt",
         help="OmniVLA language navigation prompt",
     )
+    parser.add_argument(
+        "--goal-image",
+        type=Path,
+        default=Path(__file__).resolve().parent / "goal_img.jpg",
+        help="Goal image used by image-goal modality; language mode uses a placeholder if absent",
+    )
     cli_args = parser.parse_args()
     use_sim = cli_args.sim
     stop_signal_path = Path(cli_args.stop_signal_file)
@@ -533,7 +552,7 @@ if __name__ == "__main__":
     goal_compass = -float(goal_compass) / 180.0 * math.pi
     
     # Egocentric goal image
-    goal_image_PIL = Image.open("./inference/goal_img.jpg").convert("RGB").resize(imgsize)
+    goal_image_PIL = load_goal_image(cli_args.goal_image, imgsize)
 
     Front_foward = True
 
