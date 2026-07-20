@@ -63,8 +63,8 @@ dependencies = [
     "zarr",
     "datasets",
     "efficientnet_pytorch",
-    "av"
-    "openai-clip"
+    "av",
+    "openai-clip",
 ]
 
 [project.optional-dependencies]

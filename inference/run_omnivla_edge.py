@@ -270,7 +270,7 @@ class Inference:
         waypoints = actions.float().cpu().numpy()
 
         # Select waypoint
-        waypoint_select = 4
+        waypoint_select = 6
         # distance_m = read_target_distance(self.stop_signal_path.parent / ".target_distance")
         # waypoint_select = 2 if distance_m is not None and distance_m < 1.5 else 4
         chosen_waypoint = waypoints[0][waypoint_select].copy()
@@ -520,7 +520,7 @@ if __name__ == "__main__":
 
     # Goal definitions
     # language prompt
-    lan_inst_prompt = "red fire extinguisher"
+    lan_inst_prompt = "go to the human with white shirt"
     
     # GPS signal
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
@@ -537,7 +537,8 @@ if __name__ == "__main__":
     model_params["model_type"] = "omnivla-edge"    
     model_params["len_traj_pred"] = 8
     model_params["learn_angle"] = True
-    model_params["context_size"] = 6
+    # The checkpoint uses five history frames plus the current frame.
+    model_params["context_size"] = 5
     model_params["obs_encoder"] = "efficientnet-b0"
     model_params["encoding_size"] = 256
     model_params["obs_encoding_size"] = 1024   
@@ -584,7 +585,7 @@ if __name__ == "__main__":
         goal_image_PIL=goal_image_PIL,
         node=node,
         stop_signal_path=stop_signal_path,
-        context_length=context_size,
+        context_length=context_size + 1,
     )
     try:
         inference.run()

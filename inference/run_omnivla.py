@@ -11,7 +11,9 @@
 import sys, os
 sys.path.insert(0, '..')
 
-import time, math, json
+import io
+import time, math, json, threading
+from pathlib import Path
 from typing import Optional, Tuple, Type, Dict
 from dataclasses import dataclass
 
@@ -24,6 +26,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import utm
+import argparse
 
 # ---------------------------
 # Custom Imports
@@ -43,6 +46,10 @@ from transformers import AutoConfig, AutoProcessor, AutoModelForVision2Seq, Auto
 # ===============================================================
 # Utility Functions
 # ===============================================================
+def clip_angle(theta):
+    return np.arctan2(np.sin(theta), np.cos(theta))
+
+
 def remove_ddp_in_checkpoint(state_dict: dict) -> dict:
     return {k[7:] if k.startswith("module.") else k: v for k, v in state_dict.items()}
 
@@ -82,7 +89,18 @@ def init_module(
 # Inference Class
 # ===============================================================
 class Inference:
-    def __init__(self, save_dir, lan_inst_prompt, goal_utm, goal_compass, goal_image_PIL, action_tokenizer, processor):
+    def __init__(
+        self,
+        save_dir,
+        lan_inst_prompt,
+        goal_utm,
+        goal_compass,
+        goal_image_PIL,
+        action_tokenizer,
+        processor,
+        node=None,
+        stop_signal_path=None,
+    ):
         self.tick_rate = 3
         self.lan_inst_prompt = lan_inst_prompt
         self.goal_utm = goal_utm
@@ -93,6 +111,24 @@ class Inference:
         self.count_id = 0
         self.linear, self.angular = 0.0, 0.0
         self.datastore_path_image = save_dir
+        self.node = node
+        self.stop_signal_path = stop_signal_path
+        self._estop = threading.Event()
+
+    def _check_external_stop(self) -> bool:
+        if self.stop_signal_path is None:
+            return False
+        from stop_signal import is_stop_requested
+
+        if is_stop_requested(self.stop_signal_path):
+            if not self._estop.is_set():
+                print("[STOP JUDGE] External stop requested - halting robot.")
+            self._estop.set()
+            if self.node is not None:
+                self.node.stop()
+            return True
+        return False
+
     # ----------------------------
     # Static Utility Methods
     # ----------------------------
@@ -109,22 +145,50 @@ class Inference:
     # ----------------------------
     # Main Loop
     # ----------------------------
-    def run(self):
+    def _watch_estop(self):
+        while not self._estop.is_set():
+            try:
+                line = input()
+            except EOFError:
+                break
+            if line.strip().lower() in ("", "q"):
+                print("[FAILSAFE] Stop key pressed - halting robot.")
+                self._estop.set()
+                if self.node is not None:
+                    self.node.stop()
+
+    def run(self, max_ticks=200):
+        print("[FAILSAFE] Press Enter or 'q' + Enter to stop the robot.")
+        estop_thread = threading.Thread(target=self._watch_estop, daemon=True)
+        estop_thread.start()
+
         loop_time = 1 / self.tick_rate
         start_time = time.time()
-        while True:
-            if time.time() - start_time > loop_time:
-                self.tick()
-                start_time = time.time()
-                break
+        tick_count = 0
+        try:
+            while tick_count < max_ticks and not self._estop.is_set():
+                if time.time() - start_time > loop_time:
+                    self.tick()
+                    start_time = time.time()
+                    tick_count += 1
+        finally:
+            if self.node is not None:
+                self.node.stop()
 
     def tick(self):
+        if self._check_external_stop():
+            return
         self.linear, self.angular = self.run_omnivla()
 
     # ----------------------------
     # OmniVLA Inference
     # ----------------------------
-    def run_omnivla(self):
+    def run_omnivla(
+        self,
+        current_image_PIL=None,
+        publish=True,
+        save_behavior=True,
+    ):
         thres_dist = 30.0
         metric_waypoint_spacing = 0.1
 
@@ -152,9 +216,14 @@ class Inference:
             np.sin(self.goal_compass - cur_compass)
         ])
 
-        # Load current image
-        current_image_path = "./inference/current_img.jpg"
-        current_image_PIL = Image.open(current_image_path).convert("RGB")
+        # Local mode reads ROS; server mode supplies the decoded request image.
+        if current_image_PIL is None:
+            if self.node is None:
+                raise RuntimeError("No input image or ROS camera node was provided")
+            current_image_PIL = self.node.get_latest_image_pil()
+            if current_image_PIL is None:
+                print("No image received from Go2 camera yet; skipping tick.")
+                return self.linear, self.angular
 
         # Language instruction
         lan_inst = self.lan_inst_prompt if lan_prompt else "xxxx"
@@ -212,7 +281,7 @@ class Inference:
         angular_vel_value = np.clip(angular_vel_value, -1.0, 1.0)
 
         # Velocity limitation
-        maxv, maxw = 0.3, 0.3
+        maxv, maxw = 0.3, 0.4
         if np.abs(linear_vel_value) <= maxv:
             if np.abs(angular_vel_value) <= maxw:
                 linear_vel_value_limit = linear_vel_value
@@ -234,11 +303,17 @@ class Inference:
                     linear_vel_value_limit = maxw * np.sign(linear_vel_value) * np.abs(rd)
                     angular_vel_value_limit = maxw * np.sign(angular_vel_value)
 
-        # Save behavior
-        self.save_robot_behavior(
-            current_image_PIL, self.goal_image_PIL, goal_pose_loc_norm, waypoints[0],
-            linear_vel_value_limit, angular_vel_value_limit, metric_waypoint_spacing, modality_id.cpu().numpy()
-        )
+        # Local mode publishes; server mode returns the command to its client.
+        if publish:
+            if self._estop.is_set() or self._check_external_stop():
+                return self.linear, self.angular
+            self.node.publish_velocity(linear_vel_value_limit, angular_vel_value_limit)
+
+        if save_behavior:
+            self.save_robot_behavior(
+                current_image_PIL, self.goal_image_PIL, goal_pose_loc_norm, waypoints[0],
+                linear_vel_value_limit, angular_vel_value_limit, metric_waypoint_spacing, modality_id.cpu().numpy()
+            )
 
         print("linear angular", linear_vel_value_limit, angular_vel_value_limit)
         return linear_vel_value_limit, angular_vel_value_limit
@@ -554,18 +629,92 @@ def define_model(cfg: InferenceConfig) -> None:
 
     return vla, action_head, pose_projector, device_id, NUM_PATCHES, action_tokenizer, processor
 
+
+def serve_remote(inference: Inference, bind_endpoint: str) -> None:
+    """Serve JPEG inference requests and return velocity commands."""
+    import zmq
+
+    context = zmq.Context()
+    socket = context.socket(zmq.REP)
+    socket.setsockopt(zmq.LINGER, 0)
+    socket.bind(bind_endpoint)
+    print(f"[SERVER] OmniVLA ready at {bind_endpoint}", flush=True)
+
+    try:
+        while True:
+            parts = socket.recv_multipart()
+            try:
+                if len(parts) != 2:
+                    raise ValueError("Expected metadata and one JPEG frame")
+                metadata_bytes, image_bytes = parts
+                metadata = json.loads(metadata_bytes.decode())
+                image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                inference.lan_inst_prompt = metadata.get(
+                    "prompt", inference.lan_inst_prompt
+                )
+                linear, angular = inference.run_omnivla(
+                    current_image_PIL=image,
+                    publish=False,
+                    save_behavior=False,
+                )
+                reply = {"linear": float(linear), "angular": float(angular)}
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                reply = {"error": f"{type(exc).__name__}: {exc}"}
+            socket.send_json(reply)
+    finally:
+        socket.close()
+        context.term()
+
+
 # ===============================================================
 # Main Entry
 # ===============================================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="OmniVLA inference")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Run as a ZeroMQ inference server without ROS",
+    )
+    parser.add_argument(
+        "--bind",
+        default="tcp://*:5555",
+        help="ZeroMQ bind endpoint used with --serve",
+    )
+    parser.add_argument("--text-prompt", default="go to fire extinguisher")
+    parser.add_argument("--sim", action="store_true", help="Use Isaac sim ROS topics (default: real Go2)")
+    parser.add_argument(
+        "--cmd-vel-topic",
+        default=None,
+        help="Override cmd_vel topic (default: /cmd_vel; use /cmd_vel_out if no twist_mux)",
+    )
+    parser.add_argument(
+        "--stop-signal-file",
+        type=str,
+        default=None,
+        help="Path to shared stop signal file from stop_judge",
+    )
+    cli_args = parser.parse_args()
+
+    if cli_args.serve:
+        try:
+            import zmq  # noqa: F401
+        except ImportError as exc:
+            raise SystemExit(
+                "Server mode requires pyzmq; install it with "
+                "`python -m pip install pyzmq`."
+            ) from exc
+
     # select modality
     pose_goal = False
     satellite = False
-    image_goal = True
-    lan_prompt = False
+    image_goal = False
+    lan_prompt = True
 
     # Goal definitions
-    lan_inst_prompt = "move toward blue trash bin"
+    lan_inst_prompt = cli_args.text_prompt
     goal_lat, goal_lon, goal_compass = 37.8738930785863, -122.26746181032362, 0.0
     goal_utm = utm.from_latlon(goal_lat, goal_lon)
     goal_compass = -float(goal_compass) / 180.0 * math.pi
@@ -575,7 +724,6 @@ if __name__ == "__main__":
     cfg = InferenceConfig()
     vla, action_head, pose_projector, device_id, NUM_PATCHES, action_tokenizer, processor = define_model(cfg)
 
-    # Run inference
     inference = Inference(
         save_dir="./inference",
         lan_inst_prompt=lan_inst_prompt,
@@ -585,4 +733,40 @@ if __name__ == "__main__":
         action_tokenizer=action_tokenizer,
         processor=processor,
     )
-    inference.run()
+
+    if cli_args.serve:
+        try:
+            serve_remote(inference, cli_args.bind)
+        except KeyboardInterrupt:
+            print("\n[SERVER] Shutting down.")
+        sys.exit(0)
+
+    # Local full-model mode retains the previous ROS behavior.
+    GOAL_STOP_JUDGE_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../../goal_stop_judge")
+    )
+    sys.path.insert(0, GOAL_STOP_JUDGE_ROOT)
+    from stop_signal import DEFAULT_STOP_SIGNAL_PATH
+    import rclpy
+    from isaacsim_controller import IsaacSimPublisher
+
+    stop_signal_path = Path(
+        cli_args.stop_signal_file or DEFAULT_STOP_SIGNAL_PATH
+    )
+    rclpy.init()
+    node = IsaacSimPublisher(
+        sim=cli_args.sim,
+        cmd_vel_topic=cli_args.cmd_vel_topic,
+    )
+    inference.node = node
+    inference.stop_signal_path = stop_signal_path
+
+    try:
+        inference.run()
+    except KeyboardInterrupt:
+        print("\n[FAILSAFE] Interrupted - stopping robot.")
+    finally:
+        node.stop()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
