@@ -5,10 +5,10 @@
 This repository extends [NHirose/OmniVLA](https://github.com/NHirose/OmniVLA) with ROS 2 integration for the Unitree Go2 (real hardware and Isaac Sim).
 
 > **Full stack (stop judge + edge / full / remote):**  
-> [`../../README.md`](../../README.md) — `cd goal_stop_judge && python go2_nav.py`  
+> [`../README.md`](../README.md) — `cd goal_stop_judge && python go2_nav.py`  
 > GPU host for remote (no `go2_nav` required):  
 > `python inference/run_omnivla.py --mode serve --bind tcp://*:5555`  
-> Env manifests: [`../../goal_stop_judge/envs/`](../../goal_stop_judge/envs/).
+> Env manifests: [`../goal_stop_judge/envs/`](../goal_stop_judge/envs/).
 
 | Doc | Purpose |
 |-----|---------|
@@ -17,7 +17,7 @@ This repository extends [NHirose/OmniVLA](https://github.com/NHirose/OmniVLA) wi
 | `inference/run_omnivla_edge.py` | OmniVLA-edge inference loop |
 | `inference/run_omnivla.py` | Full OmniVLA: `--mode local` or `--mode serve` |
 
-**Quick start (full stack):** [`../../README.md`](../../README.md).  
+**Quick start (full stack):** [`../README.md`](../README.md).  
 **Edge-only session detail:** [REAL_ROBOT_GO2.md §4](REAL_ROBOT_GO2.md#4-every-session-command-sequence).
 
 [![Python](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org)
