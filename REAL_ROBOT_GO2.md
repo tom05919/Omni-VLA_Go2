@@ -5,9 +5,9 @@
 > `cd goal_stop_judge && python go2_nav.py`.
 >
 > This document is the **edge-oriented** driver / topic / launch deep dive.
-> Canonical SDK path: `real_robot_SDKs/unofficial_sdk_unitree_go_2/src` then
+> Canonical SDK path: `unofficial_sdk_unitree_go_2/src` then
 > `source install/setup.bash`. `ROBOT_IP` is machine-specific (examples below
-> may differ from [`RUNNING_GO2_SDK.md`](../../real_robot_SDKs/unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md)).
+> may differ from [`RUNNING_GO2_SDK.md`](../../unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md)).
 
 This guide walks through **every command** needed to run OmniVLA-edge on a physical Unitree Go2 using the unofficial Go2 ROS 2 SDK. It covers one-time setup, the launch sequence for each session, verification steps, configuration, and troubleshooting.
 
@@ -72,8 +72,8 @@ The Go2 SDK launch file starts `twist_mux`, which forwards `/cmd_vel` to `/cmd_v
 | Component | Path |
 |-----------|------|
 | OmniVLA repo | `/workspace/workspace/omni-VLA/OmniVLA` |
-| Go2 SDK workspace | `/workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2` |
-| Go2 SDK setup doc | `real_robot_SDKs/unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md` |
+| Go2 SDK workspace | `/workspace/workspace/unofficial_sdk_unitree_go_2/src` |
+| Go2 SDK setup doc | `unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md` |
 
 ### Conda environments
 
@@ -137,12 +137,12 @@ ls -lh ./omnivla-edge/omnivla-edge.pth
 ```bash
 conda activate sim
 
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
 
-# Clean build if copied from another machine or after env changes
+# Clean build if copied/moved from another path or after env changes
 rm -rf build install log
 
-colcon build --symlink-install
+colcon build --packages-select go2_interfaces go2_robot_sdk
 ```
 
 Install ROS dependencies via **mamba** (not `apt`) if packages are missing:
@@ -198,7 +198,7 @@ kill <PID>
 ```bash
 conda activate sim
 
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
 source install/setup.bash
 
 export ROBOT_IP="192.168.10.3"    # change to your robot's IP
@@ -230,7 +230,7 @@ Rebuild/restart the driver with the patched SDK (see [Troubleshooting](#9-troubl
 
 ```bash
 conda activate sim
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
 source install/setup.bash
 ```
 
@@ -286,7 +286,7 @@ Only `twist_mux` should publish there before OmniVLA runs.
 conda activate sim
 
 # Source Go2 workspace so ROS message types resolve consistently
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
 source install/setup.bash
 
 cd /workspace/workspace/omni-VLA/OmniVLA
@@ -451,7 +451,7 @@ Before running OmniVLA, confirm the command pipeline works manually.
 
 ```bash
 conda activate sim
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
 source install/setup.bash
 
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
@@ -514,8 +514,8 @@ parameter 'topics.navigation.timeout' has invalid type: expected [double] got [i
 Fix in Go2 SDK `config/twist_mux.yaml`: use `timeout: 2.0` (float), not `2`. Rebuild:
 
 ```bash
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
-colcon build --packages-select go2_robot_sdk --symlink-install
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
+colcon build --packages-select go2_robot_sdk
 source install/setup.bash
 ```
 
@@ -524,7 +524,7 @@ source install/setup.bash
 You forgot to source the workspace overlay:
 
 ```bash
-source /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2/install/setup.bash
+source /workspace/workspace/unofficial_sdk_unitree_go_2/src/install/setup.bash
 ```
 
 ### Robot moves on its own without commands
@@ -579,7 +579,7 @@ Harmless in Docker/containers. DDS falls back to UDP.
 
 ```bash
 conda activate sim
-cd /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2
+cd /workspace/workspace/unofficial_sdk_unitree_go_2/src
 source install/setup.bash
 export ROBOT_IP="192.168.10.3"
 export CONN_TYPE="webrtc"
@@ -590,7 +590,7 @@ ros2 launch go2_robot_sdk robot.launch.py nav2:=false slam:=false joystick:=fals
 
 ```bash
 conda activate sim
-source /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2/install/setup.bash
+source /workspace/workspace/unofficial_sdk_unitree_go_2/src/install/setup.bash
 ros2 topic hz /camera/image_raw
 ros2 topic info /cmd_vel_out -v
 ```
@@ -599,7 +599,7 @@ ros2 topic info /cmd_vel_out -v
 
 ```bash
 conda activate sim
-source /workspace/workspace/real_robot_SDKs/unofficial_sdk_unitree_go_2/install/setup.bash
+source /workspace/workspace/unofficial_sdk_unitree_go_2/src/install/setup.bash
 cd /workspace/workspace/omni-VLA/OmniVLA
 python inference/run_omnivla_edge.py
 ```
@@ -612,4 +612,4 @@ python inference/run_omnivla_edge.py
 - [README.md](README.md) — model overview and training
 - [inference/isaacsim_controller.py](inference/isaacsim_controller.py) — ROS pub/sub bridge
 - [inference/run_omnivla_edge.py](inference/run_omnivla_edge.py) — inference loop
-- [Go2 SDK RUNNING_GO2_SDK.md](../../real_robot_SDKs/unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md) — SDK build and debug
+- [Go2 SDK RUNNING_GO2_SDK.md](../../unofficial_sdk_unitree_go_2/RUNNING_GO2_SDK.md) — SDK build and debug

@@ -6,7 +6,8 @@ This repository extends [NHirose/OmniVLA](https://github.com/NHirose/OmniVLA) wi
 
 > **Full stack (stop judge + edge / full / remote):**  
 > [`../../README.md`](../../README.md) — `cd goal_stop_judge && python go2_nav.py`  
-> GPU host for remote: `python go2_nav.py serve` → `run_omnivla.py --mode serve`.  
+> GPU host for remote (no `go2_nav` required):  
+> `python inference/run_omnivla.py --mode serve --bind tcp://*:5555`  
 > Env manifests: [`../../goal_stop_judge/envs/`](../../goal_stop_judge/envs/).
 
 | Doc | Purpose |

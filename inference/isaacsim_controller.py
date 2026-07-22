@@ -40,12 +40,13 @@ class IsaacSimPublisher(Node):
         sim: bool = False,
         image_topic: str | None = None,
         cmd_vel_topic: str | None = None,
+        node_name: str = "cmd_vel_publisher",
     ):
         topics = SIM_TOPICS if sim else REAL_TOPICS
         image_topic = image_topic or topics["image"]
         self._sim = sim
         self.cmd_vel_topic = cmd_vel_topic or topics["cmd_vel"]
-        super().__init__("cmd_vel_publisher")
+        super().__init__(node_name)
 
         self.pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self._last_twist = Twist()
